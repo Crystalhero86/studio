@@ -306,8 +306,7 @@
   },
   "auth": {
     "providers": [
-      "password",
-      "anonymous"
+      "password"
     ]
   },
   "firestore": {
@@ -408,3 +407,4 @@
     "reasoning": "The Firestore structure for CarbonTrace prioritizes secure, scalable, and debuggable authorization by adhering strictly to the core design principles. The primary strategy for Authorization Independence is achieved through structural segregation and judicious denormalization. All user-specific data (`UserProfile`, `CarbonActivity`, `CarbonFootprintSummary`, `BlockchainCommitment`) is nested under a top-level `/users/{userId}` collection. This creates a clear ownership hierarchy where the `userId` in the path directly corresponds to the authenticated user (`request.auth.uid`).\n\nFor `CarbonActivity`, `CarbonFootprintSummary`, and `BlockchainCommitment`, the `userId` field is explicitly included in each document's schema and will be stored within the document itself, even though it's already present in the parent path. This denormalization is CRITICAL for Authorization Independence (Strategy A). It allows security rules to evaluate access based solely on the document's own fields and the request context (`request.auth.uid`), eliminating the need for expensive and complex `get()` calls to parent documents to check ownership. This ensures atomic operations (like creating a new activity) can proceed without fetching parent data for authorization checks.\n\nStructural Segregation (Strategy B) is applied by separating global, publicly readable data from private user data. `EmissionFactor` documents, which are standardized and accessible to all users for calculation purposes, reside in a top-level collection `/emissionFactors`. This collection has a distinct security posture (public read, restricted write) compared to user-owned data, simplifying security rules significantly by avoiding mixed access requirements within the same collection.\n\nThe `list` Query Authorization Principle (QAP) is inherently supported for user-specific data. By placing `CarbonActivity`, `CarbonFootprintSummary`, and `BlockchainCommitment` under `/users/{userId}/...`, any query for these collections will automatically be scoped to the authenticated user's `userId` (i.e., `request.auth.uid`). This means that `list` operations from the client will only ever return data belonging to the requesting user, preventing data leakage and making rules explicit and easy to write (e.g., `allow read: if request.auth.uid == userId;`). For `EmissionFactor`, a `list` query would allow all authenticated users to read all factors, which aligns with its global, public-read nature. The consistent naming conventions (`userId`, `activityId`, `summaryId`, `commitmentId`) and descriptive wildcards further enhance clarity and debuggability, making the authorization intent explicit throughout the structure."
   }
 }
+    

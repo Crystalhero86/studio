@@ -1,12 +1,17 @@
 'use client';
 
-import { Bar, BarChart, Line, LineChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
+import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import {
   ChartContainer,
   ChartTooltipContent,
   ChartConfig,
 } from '@/components/ui/chart';
-import { MOCK_OVERVIEW_DATA } from '@/lib/data';
+import { useCollection, useFirebase, useMemoFirebase } from '@/firebase';
+import { collection, query, where, Timestamp, orderBy } from 'firebase/firestore';
+import type { CarbonActivity } from '@/lib/types';
+import { subDays, format, startOfDay } from 'date-fns';
+import { useMemo } from 'react';
+import { Skeleton } from '../ui/skeleton';
 
 const chartConfig = {
   co2: {
@@ -17,11 +22,53 @@ const chartConfig = {
 
 
 export function OverviewChart() {
+  const { firestore, user } = useFirebase();
+
+  const sevenDaysAgo = useMemo(() => startOfDay(subDays(new Date(), 6)), []);
+
+  const activitiesQuery = useMemoFirebase(() => {
+    if (!user) return null;
+    return query(
+      collection(firestore, 'users', user.uid, 'carbonActivities'),
+      where('activityDate', '>=', sevenDaysAgo),
+      orderBy('activityDate', 'asc')
+    );
+  }, [firestore, user, sevenDaysAgo]);
+
+  const { data: activities, isLoading } = useCollection<CarbonActivity>(activitiesQuery);
+
+  const chartData = useMemo(() => {
+    const dailyData: { [key: string]: number } = {};
+    for (let i = 0; i < 7; i++) {
+        const d = subDays(new Date(), i);
+        const formattedDate = format(d, 'yyyy-MM-dd');
+        dailyData[formattedDate] = 0;
+    }
+
+    if (activities) {
+        activities.forEach(activity => {
+            const activityDate = activity.activityDate instanceof Timestamp ? activity.activityDate.toDate() : activity.activityDate;
+            const formattedDate = format(activityDate, 'yyyy-MM-dd');
+            if (dailyData.hasOwnProperty(formattedDate)) {
+                dailyData[formattedDate] += activity.co2e;
+            }
+        });
+    }
+
+    return Object.entries(dailyData)
+        .map(([date, co2]) => ({ date, co2: parseFloat(co2.toFixed(2)) }))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [activities]);
+
+  if (isLoading) {
+    return <Skeleton className="h-[250px] w-full" />
+  }
+
   return (
     <ChartContainer config={chartConfig} className="h-[250px] w-full">
       <LineChart
         accessibilityLayer
-        data={MOCK_OVERVIEW_DATA}
+        data={chartData}
         margin={{
           top: 5,
           right: 10,
@@ -48,11 +95,14 @@ export function OverviewChart() {
           content={<ChartTooltipContent 
             indicator="line"
             labelFormatter={(label, payload) => {
-              return new Date(payload[0].payload.date).toLocaleDateString('en-US', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-              });
+              if (payload && payload.length > 0 && payload[0].payload.date) {
+                return new Date(payload[0].payload.date).toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                });
+              }
+              return label;
             }}
           />}
         />

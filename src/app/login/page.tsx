@@ -87,10 +87,17 @@ export default function LoginPage() {
       }
     } catch (error: any) {
       console.error(error);
+      let description = 'An unexpected error occurred. Please try again.';
+      if (error.code === 'auth/invalid-credential') {
+        description = 'Invalid email or password. Please check your credentials and try again.';
+      } else if (error.code === 'auth/email-already-in-use') {
+        description = 'This email address is already in use. Please sign in or use a different email.';
+      }
+      
       toast({
         variant: 'destructive',
         title: 'Authentication Failed',
-        description: error.message || 'An unexpected error occurred.',
+        description,
       });
     } finally {
       setIsLoading(false);

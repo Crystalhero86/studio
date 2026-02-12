@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
+import { Button, buttonVariants } from '../ui/button';
 import { GitBranch, Loader2, MoreHorizontal, Copy, Leaf } from 'lucide-react';
 import {
   DropdownMenu,
@@ -20,8 +20,30 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+
 import { useToast } from '@/hooks/use-toast';
-import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, query, orderBy, doc, Timestamp } from 'firebase/firestore';
 import type { CarbonActivity } from '@/lib/types';
 import { Skeleton } from '../ui/skeleton';
@@ -50,6 +72,12 @@ export function HistoryTable() {
     const { toast } = useToast();
     const [committingId, setCommittingId] = useState<string | null>(null);
 
+    const [activityToView, setActivityToView] = useState<Activity | null>(null);
+    const [activityToEdit, setActivityToEdit] = useState<Activity | null>(null);
+    const [activityToDelete, setActivityToDelete] = useState<Activity | null>(null);
+    const [editFormData, setEditFormData] = useState<Partial<Activity>>({});
+
+
     const activitiesQuery = useMemoFirebase(() => {
         if (!user) return null;
         return query(
@@ -59,6 +87,15 @@ export function HistoryTable() {
       }, [firestore, user]);
     
     const { data: activities, isLoading } = useCollection<CarbonActivity>(activitiesQuery);
+
+    useEffect(() => {
+        if (activityToEdit) {
+        setEditFormData({
+            activityName: activityToEdit.activityName,
+            rawInput: activityToEdit.rawInput,
+        });
+        }
+    }, [activityToEdit]);
 
     const handleCommit = (activityId: string) => {
         if (!user) return;
@@ -85,112 +122,258 @@ export function HistoryTable() {
         toast({ title: 'Copied!', description: 'Transaction hash copied to clipboard.' });
     };
 
+    const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setEditFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSaveEdit = () => {
+        if (!user || !activityToEdit || !editFormData) return;
+
+        const activityRef = doc(firestore, 'users', user.uid, 'carbonActivities', activityToEdit.id);
+        updateDocumentNonBlocking(activityRef, {
+            activityName: editFormData.activityName,
+            rawInput: editFormData.rawInput,
+        });
+
+        toast({
+            title: 'Activity Updated',
+            description: 'Your changes have been saved.',
+        });
+        setActivityToEdit(null);
+    };
+
+    const handleDeleteActivity = () => {
+        if (!user || !activityToDelete) return;
+        const activityRef = doc(firestore, 'users', user.uid, 'carbonActivities', activityToDelete.id);
+        deleteDocumentNonBlocking(activityRef);
+        toast({
+            variant: "destructive",
+            title: 'Activity Deleted',
+            description: 'The activity has been permanently removed.',
+        });
+        setActivityToDelete(null);
+    };
+
+
   return (
-    <Card>
-      <CardContent className="p-0">
-        {isLoading && (
-            <div className="space-y-px bg-muted">
-                {[...Array(8)].map((_, i) => (
-                    <div key={i} className="flex items-center space-x-4 p-4 bg-background">
-                        <div className="flex-1 space-y-2">
-                            <Skeleton className="h-4 w-3/4" />
-                            <Skeleton className="h-3 w-1/2" />
-                        </div>
-                        <Skeleton className="h-8 w-24" />
-                         <Skeleton className="h-8 w-8 rounded-full" />
-                    </div>
-                ))}
-            </div>
-        )}
-
-        {!isLoading && activities && activities.length > 0 && (
-            <Table>
-            <TableHeader>
-                <TableRow>
-                <TableHead>Activity</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead className="hidden md:table-cell">CO₂e (kg)</TableHead>
-                <TableHead className="hidden md:table-cell">Date</TableHead>
-                <TableHead>Status / Tx Hash</TableHead>
-                <TableHead>
-                    <span className="sr-only">Actions</span>
-                </TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {activities.map((activity) => (
-                <TableRow key={activity.id}>
-                    <TableCell>
-                    <div className="font-medium">{activity.activityName}</div>
-                    <div className="hidden text-sm text-muted-foreground md:inline">
-                        {activity.rawInput}
-                    </div>
-                    </TableCell>
-                    <TableCell>
-                    <Badge variant="outline" className={categoryColors[activity.category] || ''}>
-                        {activity.category.replace(/_/g, ' ')}
-                    </Badge>
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell text-right">{activity.co2e.toFixed(2)}</TableCell>
-                    <TableCell className="hidden md:table-cell">{formatDate(activity.activityDate)}</TableCell>
-                    <TableCell>
-                        {activity.status === 'Pending' && committingId !== activity.id && (
-                            <Button variant="outline" size="sm" onClick={() => handleCommit(activity.id)}>
-                                <GitBranch className="mr-2 h-3 w-3" />
-                                Commit
-                            </Button>
-                        )}
-                        {committingId === activity.id && (
-                            <Button variant="outline" size="sm" disabled>
-                                <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                                Committing...
-                            </Button>
-                        )}
-                        {activity.status === 'Committed' && activity.txHash && (
-                            <div className="flex items-center gap-2 group">
-                                <Badge variant="secondary" className="font-code text-primary border-primary/50">
-                                    {activity.txHash.slice(0, 8)}...{activity.txHash.slice(-6)}
-                                </Badge>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => copyTxHash(activity.txHash)}>
-                                    <Copy className="h-3 w-3" />
-                                </Button>
+    <>
+        <Card>
+        <CardContent className="p-0">
+            {isLoading && (
+                <div className="space-y-px bg-muted">
+                    {[...Array(8)].map((_, i) => (
+                        <div key={i} className="flex items-center space-x-4 p-4 bg-background">
+                            <div className="flex-1 space-y-2">
+                                <Skeleton className="h-4 w-3/4" />
+                                <Skeleton className="h-3 w-1/2" />
                             </div>
-                        )}
-                    </TableCell>
-                    <TableCell>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                        <Button aria-haspopup="true" size="icon" variant="ghost">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">Toggle menu</span>
-                        </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                        <DropdownMenuItem>View Details</DropdownMenuItem>
-                        <DropdownMenuItem>Edit</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    </TableCell>
-                </TableRow>
-                ))}
-            </TableBody>
-            </Table>
-        )}
+                            <Skeleton className="h-8 w-24" />
+                            <Skeleton className="h-8 w-8 rounded-full" />
+                        </div>
+                    ))}
+                </div>
+            )}
 
-        {!isLoading && (!activities || activities.length === 0) && (
-            <div className="flex flex-col items-center justify-center h-96 space-y-4 border-t text-center p-4">
-                <Leaf className="h-16 w-16 text-muted-foreground/30" />
-                <h3 className="font-headline text-xl font-semibold">Your History is Empty</h3>
-                <p className="text-muted-foreground max-w-sm">
-                    It looks like you haven't logged any carbon-emitting activities yet. Once you do, they will all appear here for you to manage and commit to the blockchain.
-                </p>
-                <Button asChild>
-                    <Link href="/dashboard/log">Log Your First Activity</Link>
+            {!isLoading && activities && activities.length > 0 && (
+                <Table>
+                <TableHeader>
+                    <TableRow>
+                    <TableHead>Activity</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead className="hidden md:table-cell">CO₂e (kg)</TableHead>
+                    <TableHead className="hidden md:table-cell">Date</TableHead>
+                    <TableHead>Status / Tx Hash</TableHead>
+                    <TableHead>
+                        <span className="sr-only">Actions</span>
+                    </TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {activities.map((activity) => (
+                    <TableRow key={activity.id}>
+                        <TableCell>
+                        <div className="font-medium">{activity.activityName}</div>
+                        <div className="hidden text-sm text-muted-foreground md:inline">
+                            {activity.rawInput}
+                        </div>
+                        </TableCell>
+                        <TableCell>
+                        <Badge variant="outline" className={categoryColors[activity.category] || ''}>
+                            {activity.category.replace(/_/g, ' ')}
+                        </Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell text-right">{activity.co2e.toFixed(2)}</TableCell>
+                        <TableCell className="hidden md:table-cell">{formatDate(activity.activityDate)}</TableCell>
+                        <TableCell>
+                            {activity.status === 'Pending' && committingId !== activity.id && (
+                                <Button variant="outline" size="sm" onClick={() => handleCommit(activity.id)}>
+                                    <GitBranch className="mr-2 h-3 w-3" />
+                                    Commit
+                                </Button>
+                            )}
+                            {committingId === activity.id && (
+                                <Button variant="outline" size="sm" disabled>
+                                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                    Committing...
+                                </Button>
+                            )}
+                            {activity.status === 'Committed' && activity.txHash && (
+                                <div className="flex items-center gap-2 group">
+                                    <Badge variant="secondary" className="font-code text-primary border-primary/50">
+                                        {activity.txHash.slice(0, 8)}...{activity.txHash.slice(-6)}
+                                    </Badge>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => copyTxHash(activity.txHash)}>
+                                        <Copy className="h-3 w-3" />
+                                    </Button>
+                                </div>
+                            )}
+                        </TableCell>
+                        <TableCell>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                            <Button aria-haspopup="true" size="icon" variant="ghost">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">Toggle menu</span>
+                            </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => setActivityToView(activity)}>
+                                    View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => setActivityToEdit(activity)}>
+                                    Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className="text-destructive"
+                                    onSelect={() => setActivityToDelete(activity)}
+                                >
+                                    Delete
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        </TableCell>
+                    </TableRow>
+                    ))}
+                </TableBody>
+                </Table>
+            )}
+
+            {!isLoading && (!activities || activities.length === 0) && (
+                <div className="flex flex-col items-center justify-center h-96 space-y-4 border-t text-center p-4">
+                    <Leaf className="h-16 w-16 text-muted-foreground/30" />
+                    <h3 className="font-headline text-xl font-semibold">Your History is Empty</h3>
+                    <p className="text-muted-foreground max-w-sm">
+                        It looks like you haven't logged any carbon-emitting activities yet. Once you do, they will all appear here for you to manage and commit to the blockchain.
+                    </p>
+                    <Button asChild>
+                        <Link href="/dashboard/log">Log Your First Activity</Link>
+                    </Button>
+                </div>
+            )}
+        </CardContent>
+        </Card>
+
+        {/* View Details Dialog */}
+        <Dialog open={!!activityToView} onOpenChange={(isOpen) => !isOpen && setActivityToView(null)}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>{activityToView?.activityName}</DialogTitle>
+                    <DialogDescription>
+                        Logged on {activityToView && formatDate(activityToView.activityDate)}
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                    <div>
+                        <Label className="text-muted-foreground">Original Description</Label>
+                        <p className="text-sm">{activityToView?.rawInput}</p>
+                    </div>
+                    <div>
+                        <Label className="text-muted-foreground">Category</Label>
+                        <p className="text-sm capitalize">{activityToView?.category.replace(/_/g, ' ')}</p>
+                    </div>
+                    <div>
+                        <Label className="text-muted-foreground">CO₂e</Label>
+                        <p className="text-sm font-bold">{activityToView?.co2e.toFixed(2)} kg</p>
+                    </div>
+                    <div>
+                        <Label className="text-muted-foreground">Extracted Details</Label>
+                        <pre className="mt-1 text-xs bg-muted p-3 rounded-md overflow-x-auto">
+                            <code>{JSON.stringify(activityToView?.details, null, 2)}</code>
+                        </pre>
+                    </div>
+                    {activityToView?.status === 'Committed' && (
+                        <div>
+                            <Label className="text-muted-foreground">Blockchain Transaction</Label>
+                            <p className="text-xs font-code break-all">{activityToView?.txHash}</p>
+                        </div>
+                    )}
+                </div>
+                <DialogFooter>
+                <Button type="button" variant="secondary" onClick={() => setActivityToView(null)}>
+                    Close
                 </Button>
-            </div>
-        )}
-      </CardContent>
-    </Card>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Edit Activity Dialog */}
+        <Dialog open={!!activityToEdit} onOpenChange={(isOpen) => !isOpen && setActivityToEdit(null)}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Edit Activity</DialogTitle>
+                    <DialogDescription>
+                        Make changes to your logged activity. This will not re-run the AI analysis.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="edit-activityName">Activity Name</Label>
+                        <Input
+                        id="edit-activityName"
+                        name="activityName"
+                        value={editFormData?.activityName || ''}
+                        onChange={handleEditChange}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="edit-rawInput">Original Description</Label>
+                        <Textarea
+                        id="edit-rawInput"
+                        name="rawInput"
+                        value={editFormData?.rawInput || ''}
+                        onChange={handleEditChange}
+                        rows={4}
+                        />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setActivityToEdit(null)}>
+                        Cancel
+                    </Button>
+                    <Button type="button" onClick={handleSaveEdit}>Save Changes</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={!!activityToDelete} onOpenChange={(isOpen) => !isOpen && setActivityToDelete(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This action cannot be undone. This will permanently delete the activity
+                        "{activityToDelete?.activityName}".
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setActivityToDelete(null)}>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteActivity} className={buttonVariants({ variant: "destructive" })}>
+                        Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    </>
   );
 }

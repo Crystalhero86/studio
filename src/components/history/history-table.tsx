@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -11,10 +11,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
-import { MOCK_ALL_ACTIVITIES } from '@/lib/data';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { GitBranch, Loader2, MoreHorizontal, Copy } from 'lucide-react';
+import { GitBranch, Loader2, MoreHorizontal, Copy, Leaf } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +21,11 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
+import { useCollection, useFirebase, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { collection, query, orderBy, doc, Timestamp } from 'firebase/firestore';
+import type { CarbonActivity } from '@/lib/types';
+import { Skeleton } from '../ui/skeleton';
+import Link from 'next/link';
 
 const categoryColors: { [key: string]: string } = {
   transportation: 'bg-blue-500/20 text-blue-300 border-blue-400/50',
@@ -30,21 +34,44 @@ const categoryColors: { [key: string]: string } = {
   shopping_lifestyle: 'bg-purple-500/20 text-purple-300 border-purple-400/50',
 };
 
-type Activity = (typeof MOCK_ALL_ACTIVITIES)[0] & {
+type Activity = CarbonActivity & {
     isCommitting?: boolean;
 };
 
-export function HistoryTable() {
-    const [activities, setActivities] = useState<Activity[]>(MOCK_ALL_ACTIVITIES);
-    const { toast } = useToast();
+function formatDate(date: Date | Timestamp) {
+  if (date instanceof Timestamp) {
+    return date.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
-    const handleCommit = (activityId: number) => {
-        setActivities(prev => prev.map(act => act.id === activityId ? { ...act, isCommitting: true } : act));
+export function HistoryTable() {
+    const { firestore, user } = useFirebase();
+    const { toast } = useToast();
+    const [committingId, setCommittingId] = useState<string | null>(null);
+
+    const activitiesQuery = useMemoFirebase(() => {
+        if (!user) return null;
+        return query(
+          collection(firestore, 'users', user.uid, 'carbonActivities'),
+          orderBy('createdAt', 'desc')
+        );
+      }, [firestore, user]);
+    
+    const { data: activities, isLoading } = useCollection<CarbonActivity>(activitiesQuery);
+
+    const handleCommit = (activityId: string) => {
+        if (!user) return;
+        setCommittingId(activityId);
         
         // Simulate blockchain transaction
         setTimeout(() => {
             const txHash = `0x${[...Array(64)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')}`;
-            setActivities(prev => prev.map(act => act.id === activityId ? { ...act, isCommitting: false, status: 'Committed', txHash } : act));
+            
+            const activityRef = doc(firestore, 'users', user.uid, 'carbonActivities', activityId);
+            updateDocumentNonBlocking(activityRef, { status: 'Committed', txHash });
+            
+            setCommittingId(null);
             
             toast({
                 title: '🎉 Commit Successful!',
@@ -61,78 +88,108 @@ export function HistoryTable() {
   return (
     <Card>
       <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Activity</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead className="hidden md:table-cell">CO₂e (kg)</TableHead>
-              <TableHead className="hidden md:table-cell">Date</TableHead>
-              <TableHead>Status / Tx Hash</TableHead>
-              <TableHead>
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {activities.map((activity) => (
-              <TableRow key={activity.id}>
-                <TableCell>
-                  <div className="font-medium">{activity.activityName}</div>
-                  <div className="hidden text-sm text-muted-foreground md:inline">
-                    {activity.details}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={categoryColors[activity.category] || ''}>
-                    {activity.category.replace(/_/g, ' ')}
-                  </Badge>
-                </TableCell>
-                <TableCell className="hidden md:table-cell text-right">{activity.co2e.toFixed(2)}</TableCell>
-                <TableCell className="hidden md:table-cell">{activity.date}</TableCell>
-                <TableCell>
-                    {activity.status === 'Pending' && !activity.isCommitting && (
-                        <Button variant="outline" size="sm" onClick={() => handleCommit(activity.id)}>
-                            <GitBranch className="mr-2 h-3 w-3" />
-                            Commit
-                        </Button>
-                    )}
-                    {activity.isCommitting && (
-                        <Button variant="outline" size="sm" disabled>
-                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                            Committing...
-                        </Button>
-                    )}
-                    {activity.status === 'Committed' && activity.txHash && (
-                        <div className="flex items-center gap-2 group">
-                            <Badge variant="secondary" className="font-code text-primary border-primary/50">
-                                {activity.txHash.slice(0, 8)}...{activity.txHash.slice(-6)}
-                            </Badge>
-                             <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => copyTxHash(activity.txHash)}>
-                                <Copy className="h-3 w-3" />
-                            </Button>
+        {isLoading && (
+            <div className="space-y-px bg-muted">
+                {[...Array(8)].map((_, i) => (
+                    <div key={i} className="flex items-center space-x-4 p-4 bg-background">
+                        <div className="flex-1 space-y-2">
+                            <Skeleton className="h-4 w-3/4" />
+                            <Skeleton className="h-3 w-1/2" />
                         </div>
-                    )}
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button aria-haspopup="true" size="icon" variant="ghost">
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="sr-only">Toggle menu</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem>View Details</DropdownMenuItem>
-                      <DropdownMenuItem>Edit</DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                        <Skeleton className="h-8 w-24" />
+                         <Skeleton className="h-8 w-8 rounded-full" />
+                    </div>
+                ))}
+            </div>
+        )}
+
+        {!isLoading && activities && activities.length > 0 && (
+            <Table>
+            <TableHeader>
+                <TableRow>
+                <TableHead>Activity</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead className="hidden md:table-cell">CO₂e (kg)</TableHead>
+                <TableHead className="hidden md:table-cell">Date</TableHead>
+                <TableHead>Status / Tx Hash</TableHead>
+                <TableHead>
+                    <span className="sr-only">Actions</span>
+                </TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {activities.map((activity) => (
+                <TableRow key={activity.id}>
+                    <TableCell>
+                    <div className="font-medium">{activity.activityName}</div>
+                    <div className="hidden text-sm text-muted-foreground md:inline">
+                        {activity.rawInput}
+                    </div>
+                    </TableCell>
+                    <TableCell>
+                    <Badge variant="outline" className={categoryColors[activity.category] || ''}>
+                        {activity.category.replace(/_/g, ' ')}
+                    </Badge>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-right">{activity.co2e.toFixed(2)}</TableCell>
+                    <TableCell className="hidden md:table-cell">{formatDate(activity.activityDate)}</TableCell>
+                    <TableCell>
+                        {activity.status === 'Pending' && committingId !== activity.id && (
+                            <Button variant="outline" size="sm" onClick={() => handleCommit(activity.id)}>
+                                <GitBranch className="mr-2 h-3 w-3" />
+                                Commit
+                            </Button>
+                        )}
+                        {committingId === activity.id && (
+                            <Button variant="outline" size="sm" disabled>
+                                <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                Committing...
+                            </Button>
+                        )}
+                        {activity.status === 'Committed' && activity.txHash && (
+                            <div className="flex items-center gap-2 group">
+                                <Badge variant="secondary" className="font-code text-primary border-primary/50">
+                                    {activity.txHash.slice(0, 8)}...{activity.txHash.slice(-6)}
+                                </Badge>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => copyTxHash(activity.txHash)}>
+                                    <Copy className="h-3 w-3" />
+                                </Button>
+                            </div>
+                        )}
+                    </TableCell>
+                    <TableCell>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                        <Button aria-haspopup="true" size="icon" variant="ghost">
+                            <MoreHorizontal className="h-4 w-4" />
+                            <span className="sr-only">Toggle menu</span>
+                        </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                        <DropdownMenuItem>View Details</DropdownMenuItem>
+                        <DropdownMenuItem>Edit</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    </TableCell>
+                </TableRow>
+                ))}
+            </TableBody>
+            </Table>
+        )}
+
+        {!isLoading && (!activities || activities.length === 0) && (
+            <div className="flex flex-col items-center justify-center h-96 space-y-4 border-t text-center p-4">
+                <Leaf className="h-16 w-16 text-muted-foreground/30" />
+                <h3 className="font-headline text-xl font-semibold">Your History is Empty</h3>
+                <p className="text-muted-foreground max-w-sm">
+                    It looks like you haven't logged any carbon-emitting activities yet. Once you do, they will all appear here for you to manage and commit to the blockchain.
+                </p>
+                <Button asChild>
+                    <Link href="/dashboard/log">Log Your First Activity</Link>
+                </Button>
+            </div>
+        )}
       </CardContent>
     </Card>
   );

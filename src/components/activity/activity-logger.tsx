@@ -14,6 +14,9 @@ import { analyzeActivity } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Bot, Loader2, Sparkles } from 'lucide-react';
 import { AiAssistedActivityLoggingOutput } from '@/ai/flows/ai-assisted-activity-logging-flow';
+import { useFirebase, addDocumentNonBlocking } from '@/firebase';
+import { collection, serverTimestamp } from 'firebase/firestore';
+
 
 const activitySchema = z.object({
   description: z.string().min(10, 'Please provide a more detailed description.'),
@@ -28,6 +31,7 @@ export function ActivityLogger() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [aiResult, setAiResult] = useState<AiAssistedActivityLoggingOutput | null>(null);
   const { toast } = useToast();
+  const { firestore, user } = useFirebase();
 
   const form = useForm<ActivityFormData>({
     resolver: zodResolver(activitySchema),
@@ -72,13 +76,38 @@ export function ActivityLogger() {
   };
 
   const onSubmit = (data: ActivityFormData) => {
-    // Here you would typically send the structured data to your backend
-    console.log('Submitting data:', {
-      category: aiResult?.category,
-      activityName: aiResult?.activityName,
-      details: aiResult?.extractedDetails,
-      originalDescription: data.description,
-    });
+    if (!user) {
+      toast({
+        variant: 'destructive',
+        title: 'Not Signed In',
+        description: 'You must be signed in to log activities.',
+      });
+      return;
+    }
+
+    if (!aiResult) {
+      toast({
+        variant: 'destructive',
+        title: 'No AI Result',
+        description: 'Please analyze the activity first.',
+      });
+      return;
+    }
+
+    const activityData = {
+      userId: user.uid,
+      activityName: aiResult.activityName,
+      category: aiResult.category,
+      details: aiResult.extractedDetails,
+      rawInput: data.description,
+      activityDate: new Date(),
+      createdAt: serverTimestamp(),
+      status: 'Pending',
+      co2e: Math.round(Math.random() * 10 * 100) / 100, // Mocking co2e for now
+    };
+
+    const activitiesRef = collection(firestore, 'users', user.uid, 'carbonActivities');
+    addDocumentNonBlocking(activitiesRef, activityData);
 
     toast({
       title: 'Activity Logged!',

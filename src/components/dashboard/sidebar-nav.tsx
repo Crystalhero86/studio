@@ -9,10 +9,12 @@ import {
   SidebarContent,
 } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { LayoutDashboard, PenSquare, History, Leaf, Settings, LogOut } from 'lucide-react';
 import { UserNav } from './user-nav';
+import { useAuth } from '@/firebase';
+import { signOut } from 'firebase/auth';
 
 const menuItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,6 +24,15 @@ const menuItems = [
 
 export function SidebarNav() {
   const pathname = usePathname();
+  const auth = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    if (auth) {
+      await signOut(auth);
+      router.push('/login');
+    }
+  };
 
   return (
     <>
@@ -59,7 +70,7 @@ export function SidebarNav() {
               </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-             <SidebarMenuButton tooltip="Log Out">
+             <SidebarMenuButton tooltip="Log Out" onClick={handleLogout}>
                 <LogOut />
                 <span>Log Out</span>
               </SidebarMenuButton>

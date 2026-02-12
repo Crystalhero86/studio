@@ -1,3 +1,5 @@
+'use client';
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,17 +12,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Settings, User, LogOut } from "lucide-react";
+import { useAuth, useUser } from "@/firebase";
+import { signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
 
 type UserNavProps = {
     isMobile: boolean;
 };
 
 export function UserNav({ isMobile }: UserNavProps) {
+    const auth = useAuth();
+    const { user } = useUser();
+    const router = useRouter();
+
+    const handleLogout = async () => {
+        if (auth) {
+            await signOut(auth);
+            router.push('/login');
+        }
+    };
+
     const trigger = (
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
             <Avatar className="h-8 w-8">
-            <AvatarImage src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="@user" />
-            <AvatarFallback>U</AvatarFallback>
+            <AvatarImage src={user?.photoURL || `https://i.pravatar.cc/150?u=${user?.uid}`} alt={user?.displayName || "User Avatar"} />
+            <AvatarFallback>{user?.email?.charAt(0).toUpperCase() || 'U'}</AvatarFallback>
             </Avatar>
         </Button>
     )
@@ -34,9 +50,9 @@ export function UserNav({ isMobile }: UserNavProps) {
                 <DropdownMenuContent className="w-56" align="end" forceMount>
                     <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
-                        <p className="text-sm font-medium leading-none">Eco Warrior</p>
+                        <p className="text-sm font-medium leading-none">{user?.displayName || 'Anonymous User'}</p>
                         <p className="text-xs leading-none text-muted-foreground">
-                        user@example.com
+                        {user?.email || (user?.isAnonymous ? "Anonymous Session" : "No email")}
                         </p>
                     </div>
                     </DropdownMenuLabel>
@@ -52,7 +68,7 @@ export function UserNav({ isMobile }: UserNavProps) {
                         </DropdownMenuItem>
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleLogout}>
                         <LogOut className="mr-2 h-4 w-4" />
                         <span>Log out</span>
                     </DropdownMenuItem>
@@ -64,12 +80,12 @@ export function UserNav({ isMobile }: UserNavProps) {
   return (
     <div className="flex items-center gap-4">
        <Avatar className="h-9 w-9">
-          <AvatarImage src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="@user" />
-          <AvatarFallback>U</AvatarFallback>
+          <AvatarImage src={user?.photoURL || `https://i.pravatar.cc/150?u=${user?.uid}`} alt={user?.displayName || "User Avatar"} />
+          <AvatarFallback>{user?.email?.charAt(0).toUpperCase() || 'U'}</AvatarFallback>
         </Avatar>
         <div className="grid gap-0.5">
-          <p className="text-sm font-medium leading-none">Eco Warrior</p>
-          <p className="text-xs text-muted-foreground">user@example.com</p>
+          <p className="text-sm font-medium leading-none">{user?.displayName || 'Anonymous User'}</p>
+          <p className="text-xs text-muted-foreground">{user?.email || (user?.isAnonymous ? "Anonymous Session" : "No email")}</p>
         </div>
     </div>
   );

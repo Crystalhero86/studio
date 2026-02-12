@@ -130,7 +130,7 @@ export default function LoginPage() {
                         <FormItem>
                           <FormLabel>First Name</FormLabel>
                           <FormControl>
-                            <Input placeholder="John" {...field} />
+                            <Input placeholder="John" {...field} suppressHydrationWarning />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -143,7 +143,7 @@ export default function LoginPage() {
                         <FormItem>
                           <FormLabel>Last Name</FormLabel>
                           <FormControl>
-                            <Input placeholder="Doe" {...field} />
+                            <Input placeholder="Doe" {...field} suppressHydrationWarning />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -158,7 +158,7 @@ export default function LoginPage() {
                     <FormItem>
                       <FormLabel>Email</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="john.doe@example.com" {...field} />
+                        <Input type="email" placeholder="john.doe@example.com" {...field} suppressHydrationWarning />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -171,7 +171,7 @@ export default function LoginPage() {
                     <FormItem>
                       <FormLabel>Password</FormLabel>
                       <FormControl>
-                        <Input type="password" {...field} />
+                        <Input type="password" {...field} suppressHydrationWarning />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -179,7 +179,7 @@ export default function LoginPage() {
                 />
               </CardContent>
               <CardFooter className="flex flex-col gap-4">
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" disabled={isLoading} suppressHydrationWarning>
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {isSignUp ? 'Sign Up' : 'Login'}
                 </Button>
@@ -192,6 +192,7 @@ export default function LoginPage() {
                         form.reset();
                       }}
                       className="underline underline-offset-4 hover:text-primary font-medium"
+                      suppressHydrationWarning
                   >
                     {isSignUp ? 'Sign In' : 'Sign Up'}
                   </button>
@@ -204,4 +205,3 @@ export default function LoginPage() {
     </div>
   );
 }
-    

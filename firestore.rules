@@ -1,0 +1,187 @@
+/**
+ * Core Philosophy: This ruleset implements a strict user-ownership security model. All data specific to a user,
+ * including their profile, carbon activities, and summaries, is stored in a private data tree accessible only
+ * by that authenticated user. Data that is global and non-sensitive, such as emission factors, is publicly
+ * readable by any authenticated user but is not client-writable.
+ *
+ * Data Structure: The structure is hierarchical and user-centric. All private user data is nested under
+ * the `/users/{userId}` path, where `{userId}` corresponds to the user's Firebase Authentication UID.
+ * A separate top-level collection, `/emissionFactors`, holds public data.
+ *
+ * Key Security Decisions:
+ * - User Isolation: A user can only access documents within their own `/users/{userId}` path. They cannot
+ *   read, write, or even know about the existence of data belonging to other users.
+ * - No User Listing: Listing documents from the top-level `/users` collection is explicitly disallowed
+ *   to protect user privacy and prevent enumeration attacks.
+ * - Read-Only Public Data: The `/emissionFactors` collection is readable by any authenticated user to
+ *   facilitate carbon calculations on the client-side, but all write operations are denied, assuming
+ *   this data is managed by backend processes or administrators.
+ * - Secure Defaults: By default, access is denied. Rules are written to explicitly grant the minimum
+ *   permissions necessary for the application to function.
+ *
+ * Denormalization for Authorization: To ensure fast and secure authorization, a `userId` field is denormalized
+ * (copied) onto every document in user-specific subcollections (e.g., carbonActivities, carbonFootprintSummaries).
+ * This allows rules to validate ownership by checking a field on the document itself, avoiding slow and costly
+ * `get()` calls to parent documents.
+ *
+ * Structural Segregation: The ruleset separates private and public data into distinct collections. User-specific
+ * data resides under `/users/{userId}`, while globally accessible data like `/emissionFactors` is in its own
+ * top-level collection. This separation simplifies rule logic, improves query performance, and enhances security.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper Functions
+    
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the currently authenticated user's UID matches the provided userId.
+     * Used for validating ownership based on path parameters.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    /**
+     * Checks for ownership and ensures the document already exists.
+     * CRITICAL for secure update and delete operations.
+     */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
+    }
+
+    /**
+     * Validates relational integrity for UserProfile documents.
+     */
+    function hasValidUserProfileData(userId) {
+      // On CREATE, the document's internal `id` must match the user's auth UID.
+      // On UPDATE, the `id` field must be immutable.
+      let isIdConsistentOnCreate = request.resource.data.id == userId;
+      let isIdImmutableOnUpdate = request.resource.data.id == resource.data.id;
+      
+      return isIdConsistentOnCreate || isIdImmutableOnUpdate;
+    }
+
+    /**
+     * Validates relational integrity for CarbonActivity documents.
+     */
+    function hasValidCarbonActivityData(userId) {
+      // On CREATE, the document's internal `userId` must match the user's auth UID.
+      // On UPDATE, the `userId` field must be immutable.
+      let isOwnerIdConsistentOnCreate = request.resource.data.userId == userId;
+      let isOwnerIdImmutableOnUpdate = request.resource.data.userId == resource.data.userId;
+
+      return isOwnerIdConsistentOnCreate || isOwnerIdImmutableOnUpdate;
+    }
+
+    /**
+     * Validates relational integrity for CarbonFootprintSummary documents.
+     */
+    function hasValidSummaryData(userId) {
+      // On CREATE, the document's internal `userId` must match the user's auth UID.
+      // On UPDATE, the `userId` field must be immutable.
+      let isOwnerIdConsistentOnCreate = request.resource.data.userId == userId;
+      let isOwnerIdImmutableOnUpdate = request.resource.data.userId == resource.data.userId;
+
+      return isOwnerIdConsistentOnCreate || isOwnerIdImmutableOnUpdate;
+    }
+
+    /**
+     * Validates relational integrity for BlockchainCommitment documents.
+     */
+    function hasValidCommitmentData(userId) {
+      // On CREATE, the document's internal `userId` must match the user's auth UID.
+      // On UPDATE, the `userId` field must be immutable.
+      let isOwnerIdConsistentOnCreate = request.resource.data.userId == userId;
+      let isOwnerIdImmutableOnUpdate = request.resource.data.userId == resource.data.userId;
+
+      return isOwnerIdConsistentOnCreate || isOwnerIdImmutableOnUpdate;
+    }
+
+    /**
+     * @description Rules for a user's own profile document.
+     * @path /users/{userId}
+     * @allow (get) A user (auth.uid='user_abc') can read their own profile at `/users/user_abc`.
+     * @allow (create) A new user (auth.uid='user_abc') can create their profile at `/users/user_abc`.
+     * @deny (get) A user (auth.uid='user_xyz') cannot read another user's profile at `/users/user_abc`.
+     * @deny (list) No user can list all documents in the `/users` collection.
+     * @principle Restricts access to a user's own data tree and allows self-creation of a root profile.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && hasValidUserProfileData(userId);
+      allow update: if isExistingOwner(userId) && hasValidUserProfileData(userId);
+      allow delete: if false;
+
+      /**
+       * @description Rules for a user's private carbon activity logs.
+       * @path /users/{userId}/carbonActivities/{activityId}
+       * @allow (create) A user (auth.uid='user_abc') can create a new activity at `/users/user_abc/carbonActivities/new_activity`.
+       * @allow (list) A user (auth.uid='user_abc') can list all of their own activities.
+       * @deny (get) A user (auth.uid='user_xyz') cannot read an activity at `/users/user_abc/carbonActivities/some_activity`.
+       * @deny (update) A user cannot update an activity belonging to another user.
+       * @principle Enforces strict document ownership within a user's private subcollection.
+       */
+      match /carbonActivities/{activityId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && hasValidCarbonActivityData(userId);
+        allow update: if isExistingOwner(userId) && hasValidCarbonActivityData(userId);
+        allow delete: if isExistingOwner(userId);
+      }
+
+      /**
+       * @description Rules for a user's private carbon footprint summaries.
+       * @path /users/{userId}/carbonFootprintSummaries/{summaryId}
+       * @allow (get, list, create, update, delete) A user can fully manage their own summary documents.
+       * @deny (get) A user cannot access summaries belonging to another user.
+       * @principle Enforces strict document ownership within a user's private subcollection.
+       */
+      match /carbonFootprintSummaries/{summaryId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && hasValidSummaryData(userId);
+        allow update: if isExistingOwner(userId) && hasValidSummaryData(userId);
+        allow delete: if isExistingOwner(userId);
+      }
+
+      /**
+       * @description Rules for a user's private blockchain commitment records.
+       * @path /users/{userId}/blockchainCommitments/{commitmentId}
+       * @allow (get, list, create, update, delete) A user can fully manage their own blockchain commitment records.
+       * @deny (get) A user cannot access commitment records belonging to another user.
+       * @principle Enforces strict document ownership within a user's private subcollection.
+       */
+      match /blockchainCommitments/{commitmentId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && hasValidCommitmentData(userId);
+        allow update: if isExistingOwner(userId) && hasValidCommitmentData(userId);
+        allow delete: if isExistingOwner(userId);
+      }
+    }
+
+    /**
+     * @description Rules for globally available emission factor data.
+     * @path /emissionFactors/{emissionFactorId}
+     * @allow (get, list) Any authenticated user can read emission factor data for calculations.
+     * @deny (create, update, delete) No client-side user can write to this collection. It is managed by administrators or backend processes only.
+     * @principle Provides public read access for authenticated users while protecting the data's integrity by disallowing all client writes.
+     */
+    match /emissionFactors/{emissionFactorId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

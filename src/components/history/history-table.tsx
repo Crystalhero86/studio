@@ -275,7 +275,7 @@ export function HistoryTable() {
         </Card>
 
         {/* View Details Dialog */}
-        <Dialog open={!!activityToView} onOpenChange={(isOpen) => !isOpen && setActivityToView(null)}>
+        <Dialog open={!!activityToView} onOpenChange={(open) => { if (!open) setActivityToView(null); }}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>{activityToView?.activityName}</DialogTitle>
@@ -318,7 +318,7 @@ export function HistoryTable() {
         </Dialog>
 
         {/* Edit Activity Dialog */}
-        <Dialog open={!!activityToEdit} onOpenChange={(isOpen) => !isOpen && setActivityToEdit(null)}>
+        <Dialog open={!!activityToEdit} onOpenChange={(open) => { if (!open) setActivityToEdit(null); }}>
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Edit Activity</DialogTitle>
@@ -357,7 +357,7 @@ export function HistoryTable() {
         </Dialog>
 
         {/* Delete Confirmation Dialog */}
-        <AlertDialog open={!!activityToDelete} onOpenChange={(isOpen) => !isOpen && setActivityToDelete(null)}>
+        <AlertDialog open={!!activityToDelete} onOpenChange={(open) => { if (!open) setActivityToDelete(null); }}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>

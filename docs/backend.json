@@ -54,35 +54,38 @@
         },
         "userId": {
           "type": "string",
-          "description": "Reference to the UserProfile who logged this activity. (Relationship: UserProfile 1:N CarbonActivity)"
+          "description": "Reference to the UserProfile who logged this activity."
         },
-        "activityType": {
+        "activityName": {
           "type": "string",
-          "description": "The category of the activity, e.g., 'Transportation', 'Electricity', 'Food', 'Shopping'."
+          "description": "A concise name for the activity, e.g., 'Drive to work'."
         },
-        "description": {
+        "category": {
           "type": "string",
-          "description": "A detailed description of the activity, possibly assisted by AI for parsing natural language input."
+          "description": "The category of the activity, e.g., 'transportation', 'food_consumption'."
+        },
+        "details": {
+          "type": "object",
+          "description": "Structured data extracted by the AI, used for calculation.",
+          "properties": {
+            "itemName": {
+              "type": "string"
+            },
+            "quantity": {
+              "type": "number"
+            },
+            "unit": {
+              "type": "string"
+            }
+          }
         },
         "rawInput": {
           "type": "string",
-          "description": "The original natural language input provided by the user before AI parsing (optional, for auditing or debugging)."
+          "description": "The original natural language input from the user."
         },
-        "amount": {
+        "co2e": {
           "type": "number",
-          "description": "The numerical value associated with the activity, e.g., miles driven, kWh consumed."
-        },
-        "unit": {
-          "type": "string",
-          "description": "The unit of measurement for the 'amount', e.g., 'miles', 'kWh', 'kg'."
-        },
-        "emissionFactorId": {
-          "type": "string",
-          "description": "Reference to the EmissionFactor used for calculating CO2 emissions for this activity. (Relationship: EmissionFactor 1:N CarbonActivity)"
-        },
-        "calculatedEmissionsCo2e": {
-          "type": "number",
-          "description": "The estimated CO2 equivalent emissions in kilograms (kg CO2e) for this activity."
+          "description": "The estimated CO2 equivalent emissions in kilograms (kg CO2e)."
         },
         "activityDate": {
           "type": "string",
@@ -94,23 +97,26 @@
           "description": "Timestamp indicating when the activity was logged.",
           "format": "date-time"
         },
-        "updatedAt": {
+        "status": {
           "type": "string",
-          "description": "Timestamp indicating when the activity record was last updated.",
-          "format": "date-time"
+          "description": "The status of the activity, e.g., 'Pending', 'Committed'."
+        },
+        "txHash": {
+          "type": "string",
+          "description": "The blockchain transaction hash if the activity has been committed."
         }
       },
       "required": [
         "id",
         "userId",
-        "activityType",
-        "description",
-        "amount",
-        "unit",
-        "emissionFactorId",
-        "calculatedEmissionsCo2e",
+        "activityName",
+        "category",
+        "details",
+        "rawInput",
+        "co2e",
         "activityDate",
-        "createdAt"
+        "createdAt",
+        "status"
       ]
     },
     "EmissionFactor": {
@@ -407,4 +413,3 @@
     "reasoning": "The Firestore structure for CarbonTrace prioritizes secure, scalable, and debuggable authorization by adhering strictly to the core design principles. The primary strategy for Authorization Independence is achieved through structural segregation and judicious denormalization. All user-specific data (`UserProfile`, `CarbonActivity`, `CarbonFootprintSummary`, `BlockchainCommitment`) is nested under a top-level `/users/{userId}` collection. This creates a clear ownership hierarchy where the `userId` in the path directly corresponds to the authenticated user (`request.auth.uid`).\n\nFor `CarbonActivity`, `CarbonFootprintSummary`, and `BlockchainCommitment`, the `userId` field is explicitly included in each document's schema and will be stored within the document itself, even though it's already present in the parent path. This denormalization is CRITICAL for Authorization Independence (Strategy A). It allows security rules to evaluate access based solely on the document's own fields and the request context (`request.auth.uid`), eliminating the need for expensive and complex `get()` calls to parent documents to check ownership. This ensures atomic operations (like creating a new activity) can proceed without fetching parent data for authorization checks.\n\nStructural Segregation (Strategy B) is applied by separating global, publicly readable data from private user data. `EmissionFactor` documents, which are standardized and accessible to all users for calculation purposes, reside in a top-level collection `/emissionFactors`. This collection has a distinct security posture (public read, restricted write) compared to user-owned data, simplifying security rules significantly by avoiding mixed access requirements within the same collection.\n\nThe `list` Query Authorization Principle (QAP) is inherently supported for user-specific data. By placing `CarbonActivity`, `CarbonFootprintSummary`, and `BlockchainCommitment` under `/users/{userId}/...`, any query for these collections will automatically be scoped to the authenticated user's `userId` (i.e., `request.auth.uid`). This means that `list` operations from the client will only ever return data belonging to the requesting user, preventing data leakage and making rules explicit and easy to write (e.g., `allow read: if request.auth.uid == userId;`). For `EmissionFactor`, a `list` query would allow all authenticated users to read all factors, which aligns with its global, public-read nature. The consistent naming conventions (`userId`, `activityId`, `summaryId`, `commitmentId`) and descriptive wildcards further enhance clarity and debuggability, making the authorization intent explicit throughout the structure."
   }
 }
-    

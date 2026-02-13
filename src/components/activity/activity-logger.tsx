@@ -10,26 +10,22 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { analyzeActivity } from '@/app/actions';
+import { analyzeActivity, AnalyzedActivity } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
-import { Bot, Loader2, Sparkles } from 'lucide-react';
-import { AiAssistedActivityLoggingOutput } from '@/ai/flows/ai-assisted-activity-logging-flow';
+import { Bot, Footprints, Loader2, Sparkles } from 'lucide-react';
 import { useFirebase, addDocumentNonBlocking } from '@/firebase';
 import { collection, serverTimestamp } from 'firebase/firestore';
 
 
 const activitySchema = z.object({
   description: z.string().min(10, 'Please provide a more detailed description.'),
-  category: z.string().optional(),
-  activityName: z.string().optional(),
-  details: z.record(z.any()).optional(),
 });
 
 type ActivityFormData = z.infer<typeof activitySchema>;
 
 export function ActivityLogger() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiResult, setAiResult] = useState<AiAssistedActivityLoggingOutput | null>(null);
+  const [aiResult, setAiResult] = useState<AnalyzedActivity | null>(null);
   const { toast } = useToast();
   const { firestore, user } = useFirebase();
 
@@ -59,12 +55,9 @@ export function ActivityLogger() {
 
     if (result.success && result.data) {
       setAiResult(result.data);
-      form.setValue('category', result.data.category);
-      form.setValue('activityName', result.data.activityName);
-      form.setValue('details', result.data.extractedDetails);
       toast({
         title: 'Analysis Complete',
-        description: 'AI has structured your activity. Please review and log.',
+        description: `Carbon footprint calculated: ${result.data.co2e} kg CO₂e`,
       });
     } else {
       toast({
@@ -94,16 +87,23 @@ export function ActivityLogger() {
       return;
     }
 
+    // Prepare data for Firestore, creating a details object from the flat AI result
+    const details = {
+      itemName: aiResult.itemName,
+      quantity: aiResult.quantity,
+      unit: aiResult.unit,
+    };
+
     const activityData = {
       userId: user.uid,
       activityName: aiResult.activityName,
       category: aiResult.category,
-      details: aiResult.extractedDetails,
+      details: details,
       rawInput: data.description,
       activityDate: new Date(),
       createdAt: serverTimestamp(),
       status: 'Pending',
-      co2e: Math.round(Math.random() * 10 * 100) / 100, // Mocking co2e for now
+      co2e: aiResult.co2e,
     };
 
     const activitiesRef = collection(firestore, 'users', user.uid, 'carbonActivities');
@@ -162,39 +162,53 @@ export function ActivityLogger() {
 
         <Card className={`lg:col-span-2 transition-opacity duration-500 ${aiResult || isAnalyzing ? 'opacity-100' : 'opacity-40'}`}>
           <CardHeader>
-            <CardTitle className="font-headline">Structured Data</CardTitle>
+            <CardTitle className="font-headline">Structured Data &amp; Footprint</CardTitle>
             <CardDescription>
-              Review the data extracted by the AI. You can make changes before logging.
+              Review the data and calculated footprint. This will be saved to your history.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {isAnalyzing && (
-              <div className="flex flex-col items-center justify-center h-48 space-y-4">
+              <div className="flex flex-col items-center justify-center h-64 space-y-4">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-muted-foreground">AI is processing your activity...</p>
+                <p className="text-muted-foreground">AI is processing and calculating...</p>
               </div>
             )}
             {!isAnalyzing && aiResult && (
-              <div className="space-y-4 animate-in fade-in-0 duration-500">
+              <div className="space-y-6 animate-in fade-in-0 duration-500">
+                <div className="flex flex-col items-center justify-center rounded-lg bg-muted p-6 text-center">
+                  <span className="text-sm text-muted-foreground">Estimated Carbon Footprint</span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-bold tracking-tight text-primary">{aiResult.co2e}</span>
+                    <span className="text-xl font-medium text-muted-foreground">kg CO₂e</span>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <Label htmlFor="activityName">Activity Name</Label>
-                        <Input id="activityName" defaultValue={aiResult.activityName} />
+                        <Label>Activity Name</Label>
+                        <p className="font-medium">{aiResult.activityName}</p>
                     </div>
                      <div>
-                        <Label htmlFor="category">Category</Label>
-                        <Input id="category" defaultValue={aiResult.category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} />
+                        <Label>Category</Label>
+                        <p className="font-medium capitalize">{aiResult.category.replace(/_/g, ' ')}</p>
                     </div>
                 </div>
                  <div>
                     <Label>Extracted Details</Label>
                     <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-4">
-                        {Object.entries(aiResult.extractedDetails).map(([key, value]) => (
-                            <div key={key}>
-                                <Label htmlFor={`detail-${key}`} className="text-xs text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</Label>
-                                <Input id={`detail-${key}`} defaultValue={value.toString()} />
-                            </div>
-                        ))}
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Item</Label>
+                        <p className="font-medium capitalize">{aiResult.itemName}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Quantity</Label>
+                        <p className="font-medium">{aiResult.quantity}</p>
+                      </div>
+                       <div>
+                        <Label className="text-xs text-muted-foreground">Unit</Label>
+                        <p className="font-medium">{aiResult.unit}</p>
+                      </div>
                     </div>
                 </div>
                  <div>
@@ -204,9 +218,9 @@ export function ActivityLogger() {
               </div>
             )}
             {!isAnalyzing && !aiResult && (
-                <div className="flex flex-col items-center justify-center h-48 space-y-4 border-2 border-dashed rounded-lg">
-                    <Sparkles className="h-8 w-8 text-muted-foreground" />
-                    <p className="text-muted-foreground">AI analysis results will appear here.</p>
+                <div className="flex flex-col items-center justify-center h-64 space-y-4 border-2 border-dashed rounded-lg">
+                    <Footprints className="h-10 w-10 text-muted-foreground/50" />
+                    <p className="text-muted-foreground">Footprint calculation will appear here.</p>
                 </div>
             )}
           </CardContent>
